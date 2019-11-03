@@ -7,13 +7,14 @@
 #include <windows.h>
 #include <WS2tcpip.h>
 #include <time.h>
+#include <assert.h>
 
 #define MAX_ADDLENGTH 16
 #define MAX_PATHLENGTH 100
 #define MAX_BUFFERSIZE 1024
 #define MAX_TABLEENTRY 1000
 #define MAX_RECORD 400
-#define DEFAULT_DNS "10.3.9.5"
+#define DEFAULT_DNS "10.3.9.4"
 
 typedef unsigned __int64 uint64_t;
 typedef unsigned __int32 uint32_t;
@@ -239,7 +240,7 @@ void init(const char* path)
 	hostSocket = socket(AF_INET, SOCK_DGRAM, 0);
 	hostAddr.sin_family = AF_INET;
 	hostAddr.sin_port = htons(53);
-	hostAddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+	hostAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
 
 	if (ret = bind(hostSocket, (SOCKADDR*)& hostAddr, sizeof(SOCKADDR_IN))) {
 		printf("Error Type：%d\n", WSAGetLastError());
@@ -248,6 +249,7 @@ void init(const char* path)
 	}
 	
 	buffer = (uint8_t*)malloc(MAX_BUFFERSIZE);
+	memset(buffer, 0, MAX_BUFFERSIZE);
 
 	serverAddr.sin_family = AF_INET;
 	serverAddr.sin_port = htons(53);
@@ -304,9 +306,11 @@ void get16bits(uint8_t * *ptr, uint16_t * value)
 
 void get32bits(uint8_t * *ptr, uint32_t * value)
 {
-	*value = ntohs(*(uint32_t*)(*ptr));
+	*value = ntohl(*(uint32_t*)(*ptr));
 	*ptr += sizeof(uint32_t);
 }
+
+
 
 void ExtractHeader(uint8_t * *ptr)
 {
@@ -340,7 +344,7 @@ void extractName(uint8_t * *ptr, char** name)
 		else {
 			uint8_t len = **ptr;
 			int oldlen = strlen(*name);
-			*name = realloc(*name, oldlen + (uint64_t)len + 2);
+			*name = (char*)realloc(*name, oldlen + (uint64_t)len + 2);
 			memcpy(*name + oldlen, *ptr, (uint64_t)len + 1);
 			*ptr += (uint64_t)len + 1;
 			*(*name + oldlen + (uint64_t)len + 1) = '\0';
@@ -365,71 +369,7 @@ void ExtractQuestion(uint8_t * *ptr)
 	}
 }
 
-void ExtractRR(uint8_t * *ptr)
-{
-	int i;
-	uint16_t rrcount;
-	char* name;
-
-	rrcount = message.dnsheader.ANCOUNT;
-	message.answer = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
-	for (i = 0; i < rrcount; i++) {
-		name = mkcopy("");
-		extractName(ptr, &name);
-		message.answer[i].NAME = mkcopy(name);
-		get16bits(ptr, &message.answer[i].TYPE);
-		get16bits(ptr, &message.answer[i].CLASS);
-		get32bits(ptr, &message.answer[i].TTL);
-		get16bits(ptr, &message.answer[i].RDLENGTH);
-		message.answer[i].RDATA = (uint8_t)malloc(message.answer[i].RDLENGTH);
-		memcpy(message.answer[i].RDATA, *ptr, message.answer[i].RDLENGTH);
-		*ptr += message.answer[i].RDLENGTH;
-		free(name);
-	}
-
-	rrcount = message.dnsheader.NSCOUNT;
-	message.authority = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
-	for (i = 0; i < rrcount; i++) {
-		name = mkcopy("");
-		extractName(ptr, &name);
-		message.authority[i].NAME = mkcopy(name);
-		get16bits(ptr, &message.authority[i].TYPE);
-		get16bits(ptr, &message.authority[i].CLASS);
-		get32bits(ptr, &message.authority[i].TTL);
-		get16bits(ptr, &message.authority[i].RDLENGTH);
-		message.authority[i].RDATA = (uint8_t)malloc(message.authority[i].RDLENGTH);
-		memcpy(message.authority[i].RDATA, *ptr, message.authority[i].RDLENGTH);
-		*ptr += message.authority[i].RDLENGTH;
-		free(name);
-	}
-
-	rrcount = message.dnsheader.ARCOUNT;
-	message.additional = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
-	for (i = 0; i < rrcount; i++) {
-		name = mkcopy("");
-		extractName(ptr, &name);
-		message.additional[i].NAME = mkcopy(name);
-		get16bits(ptr, &message.additional[i].TYPE);
-		get16bits(ptr, &message.additional[i].CLASS);
-		get32bits(ptr, &message.additional[i].TTL);
-		get16bits(ptr, &message.additional[i].RDLENGTH);
-		message.additional[i].RDATA = (uint8_t)malloc(message.additional[i].RDLENGTH);
-		memcpy(message.additional[i].RDATA, *ptr, message.additional[i].RDLENGTH);
-		*ptr += message.additional[i].RDLENGTH;
-		free(name);
-	}
-}
-
-void ExtractMessage()
-{
-	uint8_t* ptr = buffer;
-	ExtractHeader(&ptr);
-	ExtractQuestion(&ptr);
-	ExtractRR(&ptr);
-	message.senderAddr = from;
-}
-
-void printName(uint8_t * name)
+void printName(uint8_t* name)
 {
 	int cnt = 0, i;
 	int length = strlen(name);
@@ -446,6 +386,75 @@ void printName(uint8_t * name)
 	putchar('\n');
 }
 
+void ExtractRR(uint8_t * *ptr)
+{
+	int i;
+	uint16_t rrcount;
+	char* name;
+
+	rrcount = message.dnsheader.ANCOUNT;
+	if(rrcount)
+		message.answer = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
+	
+	for (i = 0; i < rrcount; i++) {
+		name = mkcopy("");
+		extractName(ptr, &name);
+		message.answer[i].NAME = mkcopy(name);
+		get16bits(ptr, &message.answer[i].TYPE);
+		get16bits(ptr, &message.answer[i].CLASS);
+		get32bits(ptr, &message.answer[i].TTL);
+		get16bits(ptr, &message.answer[i].RDLENGTH);
+		message.answer[i].RDATA = (uint8_t*)malloc(message.answer[i].RDLENGTH + 1);
+		memcpy(message.answer[i].RDATA, *ptr, message.answer[i].RDLENGTH);
+		*ptr += message.answer[i].RDLENGTH;
+		free(name);
+	}
+
+	rrcount = message.dnsheader.NSCOUNT;
+	if(rrcount)
+		message.authority = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
+	for (i = 0; i < rrcount; i++) {
+		name = mkcopy("");
+		extractName(ptr, &name);
+		message.authority[i].NAME = mkcopy(name);
+		get16bits(ptr, &message.authority[i].TYPE);
+		get16bits(ptr, &message.authority[i].CLASS);
+		get32bits(ptr, &message.authority[i].TTL);
+		get16bits(ptr, &message.authority[i].RDLENGTH);
+		message.authority[i].RDATA = (uint8_t*)malloc(message.authority[i].RDLENGTH);
+		memcpy(message.authority[i].RDATA, *ptr, message.authority[i].RDLENGTH);
+		*ptr += message.authority[i].RDLENGTH;
+		free(name);
+	}
+
+	rrcount = message.dnsheader.ARCOUNT;
+	if (rrcount)
+	message.additional = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
+	for (i = 0; i < rrcount; i++) {
+		name = mkcopy("");
+		extractName(ptr, &name);
+		message.additional[i].NAME = mkcopy(name);
+		get16bits(ptr, &message.additional[i].TYPE);
+		get16bits(ptr, &message.additional[i].CLASS);
+		get32bits(ptr, &message.additional[i].TTL);
+		get16bits(ptr, &message.additional[i].RDLENGTH);
+		message.additional[i].RDATA = (uint8_t*)malloc(message.additional[i].RDLENGTH);
+		memcpy(message.additional[i].RDATA, *ptr, message.additional[i].RDLENGTH);
+		*ptr += message.additional[i].RDLENGTH;
+		free(name);
+	}
+}
+
+void ExtractMessage()
+{
+	uint8_t* ptr = buffer;
+	ExtractHeader(&ptr);
+	ExtractQuestion(&ptr);
+	ExtractRR(&ptr);
+	message.senderAddr = from;
+}
+
+
 void printMessage(time_t * time)
 {
 	int i;
@@ -453,15 +462,15 @@ void printMessage(time_t * time)
 	{
 	case 0: break;
 	case 1:
-		printf("Time: %s\n", ctime(time));
+		printf("Time: %s", ctime(time));
 		printf("Count: %d\n", count);
 		printf("Name: ");
 		printName(message.question[0].QNAME);
 		break;
 	case 2:
-		printf("Time: %s\n", ctime(time));
+		printf("Time: %s", ctime(time));
 		printf("Count: %d\n", count);
-		printf("------------------HEADER------------------\n");
+		printf("\n------------------HEADER------------------\n");
 		printf("ID:      %X\n", message.dnsheader.ID);
 		printf("QR:      %X\n", message.dnsheader.QR);
 		printf("Opcode:  %X\n", message.dnsheader.Opcode);
@@ -476,7 +485,7 @@ void printMessage(time_t * time)
 		printf("NSCOUNT: %d\n", message.dnsheader.NSCOUNT);
 		printf("ARCOUNT: %d\n", message.dnsheader.ARCOUNT);
 
-		printf("------------------QUESTION------------------\n");
+		printf("\n------------------QUESTION------------------\n");
 		for (i = 0; i < message.dnsheader.QDCOUNT; i++) {
 			printf("Question: %d\n", i + 1);
 			printf("QNAME:  ");
@@ -485,7 +494,7 @@ void printMessage(time_t * time)
 			printf("QCLASS: %X\n", message.question[i].QCLASS);
 		}
 
-		printf("------------------ANSWER------------------\n");
+		printf("\n------------------ANSWER------------------\n");
 		for (i = 0; i < message.dnsheader.ANCOUNT; i++) {
 			printf("Answer: %d\n", i + 1);
 			printf("NAME:     ");
@@ -497,14 +506,14 @@ void printMessage(time_t * time)
 			printf("RDATA: \n");
 			int j;
 			for (j = 0; j < message.answer[i].RDLENGTH; j++) {
-				printf("%X  ", message.answer[i].RDATA[j]);
+				printf("%d  ", message.answer[i].RDATA[j]);
 				if (j == message.answer[i].RDLENGTH - 1) {
 					putchar('\n');
 				}
 			}
 		}
 
-		printf("------------------AUTHORITY------------------\n");
+		printf("\n------------------AUTHORITY------------------\n");
 		for (i = 0; i < message.dnsheader.NSCOUNT; i++) {
 			printf("Authority: %d\n", i + 1);
 			printf("NAME:     ");
@@ -516,16 +525,16 @@ void printMessage(time_t * time)
 			printf("RDATA: \n");
 			int j;
 			for (j = 0; j < message.authority[i].RDLENGTH; j++) {
-				printf("%X  ", message.authority[i].RDATA[j]);
+				printf("%d  ", message.authority[i].RDATA[j]);
 				if (j == message.authority[i].RDLENGTH - 1) {
 					putchar('\n');
 				}
 			}
 		}
 
-		printf("------------------ADDITIONAL------------------\n");
+		printf("\n------------------ADDITIONAL------------------\n");
 		for (i = 0; i < message.dnsheader.ARCOUNT; i++) {
-			printf("Additional: %d\n", i + 1);
+			printf("\nAdditional: %d\n", i + 1);
 			printf("NAME:     ");
 			printName(message.additional[i].NAME);
 			printf("TYPE:     %X\n", message.additional[i].TYPE);
@@ -535,7 +544,7 @@ void printMessage(time_t * time)
 			printf("RDATA: \n");
 			int j;
 			for (j = 0; j < message.additional[i].RDLENGTH; j++) {
-				printf("%X  ", message.additional[i].RDATA[j]);
+				printf("%d  ", message.additional[i].RDATA[j]);
 				if (j == message.additional[i].RDLENGTH - 1) {
 					putchar('\n');
 				}
@@ -554,7 +563,7 @@ char* transName(uint8_t * name)
 		int temp = size;
 		while (temp--)
 			ret[k++] = name[++i];
-		if (size)
+		if (size && name[i+1])
 			ret[k++] = '.';
 	}
 	ret[k] = '\0';
@@ -565,7 +574,7 @@ int findTable(char* name)
 {
 	int i, size = nameTable.size;
 	for (i = 0; i < size; i++)
-		if (!strcmp(name, nameTable.nametable[i].IP))
+		if (!strcmp(name, nameTable.nametable[i].name))
 			return i;
 	return -1;
 }
@@ -582,14 +591,18 @@ void createAnswer(char* IP, char* name)
 		message.dnsheader.RA = 1;
 		message.dnsheader.RCODE = 0;
 		message.dnsheader.ANCOUNT = 1;
-		if (!message.answer)
+		printf("%p", message.answer);
+		if (!message.answer) {
 			message.answer = (ResourceRecord*)malloc(sizeof(ResourceRecord));
+			memset(message.answer, 0, sizeof(ResourceRecord));
+		}
 		if (!message.answer[0].NAME)
 			message.answer[0].NAME = mkcopy(name);
 		else {
-			message.answer[0].NAME = realloc(message.answer[0].NAME, strlen(name) + 1);
+			message.answer[0].NAME = (char*)realloc(message.answer[0].NAME, strlen(name) + 1);
 			strcpy(message.answer[0].NAME, name);
 		}
+		
 		message.answer[0].TYPE = 1;
 		message.answer[0].CLASS = 1;
 		message.answer[0].RDLENGTH = 4;
@@ -612,7 +625,7 @@ void put16bits(uint16_t value, uint8_t * *ptr, int* buffersize)
 
 void put32bits(uint16_t value, uint8_t * *ptr, int* buffersize)
 {
-	*(uint32_t*)(*ptr) = (uint32_t)htons(value);
+	*(uint32_t*)(*ptr) = (uint32_t)htonl(value);
 	*ptr += sizeof(uint32_t);
 	*buffersize += sizeof(uint32_t);
 }
@@ -644,8 +657,14 @@ void constructQuestion(uint8_t * *ptr, int* buffersize)
 		memcpy(*ptr, message.question[i].QNAME, strlen(message.question[i].QNAME));
 		*buffersize += strlen(message.question[i].QNAME);
 		*ptr += strlen(message.question[i].QNAME);
+		printf("length: %d, QTYPE: %d\n", strlen(message.question[i].QNAME), message.question[i].QTYPE);
+		**ptr = 0;
+		*ptr += 1;
 		put16bits(message.question[i].QTYPE, ptr, buffersize);
-		put16bits(message.question[i].QCLASS, ptr, buffersize);
+		put16bits(message.question[i].QCLASS, ptr, buffersize);	
+		uint16_t* temp = (uint16_t*)malloc(2);
+		memcpy(temp, *ptr - 2, 2);
+		printf("temp:%d\n", ntohs(*temp));
 	}
 }
 
@@ -656,6 +675,8 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 		memcpy(*ptr, message.answer[i].NAME, strlen(message.answer[i].NAME));
 		*buffersize += strlen(message.answer[i].NAME);
 		*ptr += strlen(message.answer[i].NAME);
+		**ptr = 0;
+		*ptr += 1;
 
 		put16bits(message.answer[i].TYPE, ptr, buffersize);
 		put16bits(message.answer[i].CLASS, ptr, buffersize);
@@ -671,6 +692,8 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 		memcpy(*ptr, message.authority[i].NAME, strlen(message.authority[i].NAME));
 		*buffersize += strlen(message.authority[i].NAME);
 		*ptr += strlen(message.authority[i].NAME);
+		**ptr = 0;
+		*ptr += 1;
 
 		put16bits(message.authority[i].TYPE, ptr, buffersize);
 		put16bits(message.authority[i].CLASS, ptr, buffersize);
@@ -686,6 +709,8 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 		memcpy(*ptr, message.additional[i].NAME, strlen(message.additional[i].NAME));
 		*buffersize += strlen(message.additional[i].NAME);
 		*ptr += strlen(message.additional[i].NAME);
+		**ptr = 0;
+		*ptr;
 
 		put16bits(message.additional[i].TYPE, ptr, buffersize);
 		put16bits(message.additional[i].CLASS, ptr, buffersize);
@@ -700,7 +725,9 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 
 int constructMessage(char* IP, char* name)
 {
+	printf("before create answer:\n");
 	createAnswer(IP, name);
+	printf("after create answer:\n");
 	memset(buffer, 0, MAX_BUFFERSIZE);
 	uint8_t* ptr = buffer;
 	int buffersize = 0;
@@ -714,7 +741,8 @@ void insertRecord()
 {
 	recordTable.recordtable[recordTable.size].ID = message.dnsheader.ID;
 	recordTable.recordtable[recordTable.size].senderAddr = message.senderAddr;
-	recordTable.recordtable[recordTable.size].name = mkcopy(message.question[0].QNAME);
+	recordTable.recordtable[recordTable.size++].name = transName(message.question[0].QNAME);
+	//printf("insertRecord: %s", recordTable.recordtable[recordTable.size - 1].name);
 }
 
 void insertEntry(uint32_t IP, char* name)
@@ -741,8 +769,11 @@ int findRecord(uint16_t ID, SOCKADDR_IN * temp, char** name)
 
 void sendToServer(int bytes)
 {
+	//printf("fdagsdgjssdg\n");
 	insertRecord();
-	sendto(hostSocket, buffer, bytes, 0, &serverAddr, sizeof(serverAddr));
+	int ret;
+	ret = sendto(hostSocket, buffer, bytes, 0, &serverAddr, sizeof(serverAddr));
+	//printf("sendto: %d\n", ret);
 }
 
 void sendAnswer(int recvbytes)
@@ -752,23 +783,27 @@ void sendAnswer(int recvbytes)
 	if (message.dnsheader.QDCOUNT == 1 &&
 		message.question[0].QTYPE == 1 && message.question[0].QCLASS == 1) {
 		char* name = transName(message.question[0].QNAME);
+		printf("name: %s\n\n\n", name);
 		int index = findTable(name);
 		if (index >= 0) {
+			printf("\nfind the record in local name table\n");
 			int buffersize = constructMessage(nameTable.nametable[index].IP, message.question[0].QNAME);
-			printf("find the record in local name table\n");
 			printf("the message is sent to the server\n");
 			printMessage(&t);
-			if (sendto(hostSocket, buffer, buffersize, 0, &message.senderAddr, sizeof(message.senderAddr)) < 0)
+			ExtractMessage();
+			printf("second print message\n");
+			printMessage(&t);
+			if (sendto(hostSocket, buffer, buffersize, 0, &from, sizeof(message.senderAddr)) < 0)
 				printf("fail to send response\n");
 		}
 		else {
-			printf("fail to find the record in local name table\n");
+			printf("\nfail to find the record in local name table\n");
 			sendToServer(recvbytes);
 		}
 		free(name);
 	}
 	else {
-		printf("cannot handle this message\n");
+		printf("\ncannot handle this message\n");
 		sendToServer(recvbytes);
 	}
 }
@@ -780,7 +815,7 @@ void analyzeResponse(int bytes)
 	if (findRecord(message.dnsheader.ID, &tempAddr, &name))
 	{
 		int i;
-		for (i = 0; i < message.dnsheader.QDCOUNT; i++) {
+		for (i = 0; i < message.dnsheader.ANCOUNT; i++) {
 			if (message.answer[i].TYPE == 1 && message.answer[i].CLASS == 1) {
 				uint32_t IP = *(uint32_t*)message.answer[i].RDATA;
 				insertEntry(IP, name);
@@ -796,30 +831,33 @@ void recvMessage()
 {
 	time_t t;
 	int fromlen = sizeof(SOCKADDR_IN);
-	int recv = recvfrom(hostSocket, buffer, sizeof(buffer), 0, (SOCKADDR*)& from, &fromlen);
-	if (recv <= 0)
+	int recv = recvfrom(hostSocket, buffer, MAX_BUFFERSIZE, 0, (SOCKADDR*)& from, &fromlen);
+	if (recv <= 0) {
 		printf("Failed to connect.\n");
+		return;
+	}
+
 	count++;
 	time(&t);
 
-	printf("%s\n", ctime(&t));
 	freeSpace();
+	memset(&message, 0, sizeof(struct Message));
 	ExtractMessage();
 
 	if (message.dnsheader.QR == 0 && message.dnsheader.Opcode == 0) {
-		printf("recieve a request from a server\n");
+		printf("\nrecieve a request from a server\n");
 		printMessage(&t);
 		sendAnswer(recv);
 	}
 
 	else if (message.dnsheader.QR == 1) {
-		printf("recieve a response from a server\n");
+		printf("\nrecieve a response from a server\n");
 		printMessage(&t);
 		analyzeResponse(recv);
 	}
 
 	else {
-		printf("receive other message from a server\n");
+		printf("\nreceive other message from a server\n");
 		printMessage(&t);
 		sendToServer(recv);
 	}
@@ -848,5 +886,4 @@ int main(int argc, char** argv)
 	while (1) {
 		recvMessage();
 	}
-	
 }
