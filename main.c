@@ -1,6 +1,5 @@
 ﻿#pragma warning(disable:4996)
 #pragma comment(lib,"ws2_32.lib")
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +31,7 @@ SOCKET hostSocket;
 SOCKADDR_IN hostAddr;
 SOCKADDR_IN from;
 SOCKADDR_IN serverAddr;
+WSADATA wsaData;
 
 //                                    1  1  1  1  1  1
 //      0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
@@ -206,6 +206,7 @@ void init(const char* path)
 	char tempIP[MAX_ADDLENGTH + 1];
 	char tempName[100];
 	int c;
+	int ret; 
 
 	if (path[0])
 		cache = fopen("path", "r+");
@@ -216,6 +217,9 @@ void init(const char* path)
 		exit(1);
 	}
 
+	nameTable.size = 0;
+	recordTable.size = 0;
+
 	while (!feof(cache)) {
 		while ((c = getc(cache)) == '\n' || c == '\t' || c == ' ');
 		if (feof(cache))
@@ -225,20 +229,24 @@ void init(const char* path)
 		strncpy(nameTable.nametable[nameTable.size].IP, tempIP, MAX_ADDLENGTH);
 		nameTable.nametable[nameTable.size++].name = mkcopy(tempName);
 	}
-	printNameTable();
-	nameTable.size = 0;
-	recordTable.size = 0;
 
+	WORD sockVersion = MAKEWORD(2, 2);  
+	if (WSAStartup(sockVersion, &wsaData) != 0) {
+		return 0;
+	}
+	printNameTable();
+	struct sockaddr_in sin;
 	hostSocket = socket(AF_INET, SOCK_DGRAM, 0);
 	hostAddr.sin_family = AF_INET;
 	hostAddr.sin_port = htons(53);
-	hostAddr.sin_addr.S_un.S_addr = INADDR_ANY;
+	hostAddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
 
-	if (bind(hostSocket, (SOCKADDR*)& hostAddr, sizeof(SOCKADDR_IN)) < 0) {
+	if (ret = bind(hostSocket, (SOCKADDR*)& hostAddr, sizeof(SOCKADDR_IN))) {
+		printf("Error Type：%d\n", WSAGetLastError());
 		printf("Failed to bind socket to sockaddr.\n");
 		exit(1);
 	}
-
+	
 	buffer = (uint8_t*)malloc(MAX_BUFFERSIZE);
 
 	serverAddr.sin_family = AF_INET;
