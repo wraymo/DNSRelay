@@ -235,7 +235,7 @@ void init(const char* path)
 	if (WSAStartup(sockVersion, &wsaData) != 0) {
 		return 0;
 	}
-	printNameTable();
+
 	struct sockaddr_in sin;
 	hostSocket = socket(AF_INET, SOCK_DGRAM, 0);
 	hostAddr.sin_family = AF_INET;
@@ -591,7 +591,7 @@ void createAnswer(char* IP, char* name)
 		message.dnsheader.RA = 1;
 		message.dnsheader.RCODE = 0;
 		message.dnsheader.ANCOUNT = 1;
-		printf("%p", message.answer);
+		
 		if (!message.answer) {
 			message.answer = (ResourceRecord*)malloc(sizeof(ResourceRecord));
 			memset(message.answer, 0, sizeof(ResourceRecord));
@@ -657,14 +657,11 @@ void constructQuestion(uint8_t * *ptr, int* buffersize)
 		memcpy(*ptr, message.question[i].QNAME, strlen(message.question[i].QNAME));
 		*buffersize += strlen(message.question[i].QNAME);
 		*ptr += strlen(message.question[i].QNAME);
-		printf("length: %d, QTYPE: %d\n", strlen(message.question[i].QNAME), message.question[i].QTYPE);
 		**ptr = 0;
 		*ptr += 1;
+		*buffersize += 1;
 		put16bits(message.question[i].QTYPE, ptr, buffersize);
 		put16bits(message.question[i].QCLASS, ptr, buffersize);	
-		uint16_t* temp = (uint16_t*)malloc(2);
-		memcpy(temp, *ptr - 2, 2);
-		printf("temp:%d\n", ntohs(*temp));
 	}
 }
 
@@ -677,6 +674,7 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 		*ptr += strlen(message.answer[i].NAME);
 		**ptr = 0;
 		*ptr += 1;
+		*buffersize += 1;
 
 		put16bits(message.answer[i].TYPE, ptr, buffersize);
 		put16bits(message.answer[i].CLASS, ptr, buffersize);
@@ -694,6 +692,7 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 		*ptr += strlen(message.authority[i].NAME);
 		**ptr = 0;
 		*ptr += 1;
+		*buffersize += 1;
 
 		put16bits(message.authority[i].TYPE, ptr, buffersize);
 		put16bits(message.authority[i].CLASS, ptr, buffersize);
@@ -710,7 +709,8 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 		*buffersize += strlen(message.additional[i].NAME);
 		*ptr += strlen(message.additional[i].NAME);
 		**ptr = 0;
-		*ptr;
+		*ptr += 1;
+		*buffersize += 1;
 
 		put16bits(message.additional[i].TYPE, ptr, buffersize);
 		put16bits(message.additional[i].CLASS, ptr, buffersize);
@@ -725,9 +725,7 @@ void constructRR(uint8_t * *ptr, int* buffersize)
 
 int constructMessage(char* IP, char* name)
 {
-	printf("before create answer:\n");
 	createAnswer(IP, name);
-	printf("after create answer:\n");
 	memset(buffer, 0, MAX_BUFFERSIZE);
 	uint8_t* ptr = buffer;
 	int buffersize = 0;
@@ -742,7 +740,6 @@ void insertRecord()
 	recordTable.recordtable[recordTable.size].ID = message.dnsheader.ID;
 	recordTable.recordtable[recordTable.size].senderAddr = message.senderAddr;
 	recordTable.recordtable[recordTable.size++].name = transName(message.question[0].QNAME);
-	//printf("insertRecord: %s", recordTable.recordtable[recordTable.size - 1].name);
 }
 
 void insertEntry(uint32_t IP, char* name)
@@ -769,11 +766,9 @@ int findRecord(uint16_t ID, SOCKADDR_IN * temp, char** name)
 
 void sendToServer(int bytes)
 {
-	//printf("fdagsdgjssdg\n");
 	insertRecord();
 	int ret;
 	ret = sendto(hostSocket, buffer, bytes, 0, &serverAddr, sizeof(serverAddr));
-	//printf("sendto: %d\n", ret);
 }
 
 void sendAnswer(int recvbytes)
@@ -783,27 +778,23 @@ void sendAnswer(int recvbytes)
 	if (message.dnsheader.QDCOUNT == 1 &&
 		message.question[0].QTYPE == 1 && message.question[0].QCLASS == 1) {
 		char* name = transName(message.question[0].QNAME);
-		printf("name: %s\n\n\n", name);
 		int index = findTable(name);
 		if (index >= 0) {
 			printf("\nfind the record in local name table\n");
 			int buffersize = constructMessage(nameTable.nametable[index].IP, message.question[0].QNAME);
 			printf("the message is sent to the server\n");
 			printMessage(&t);
-			ExtractMessage();
-			printf("second print message\n");
-			printMessage(&t);
 			if (sendto(hostSocket, buffer, buffersize, 0, &from, sizeof(message.senderAddr)) < 0)
 				printf("fail to send response\n");
 		}
 		else {
-			printf("\nfail to find the record in local name table\n");
+			printf("fail to find the record in local name table\n");
 			sendToServer(recvbytes);
 		}
 		free(name);
 	}
 	else {
-		printf("\ncannot handle this message\n");
+		printf("cannot handle this message\n");
 		sendToServer(recvbytes);
 	}
 }
@@ -845,19 +836,19 @@ void recvMessage()
 	ExtractMessage();
 
 	if (message.dnsheader.QR == 0 && message.dnsheader.Opcode == 0) {
-		printf("\nrecieve a request from a server\n");
+		printf("recieve a request from a server\n");
 		printMessage(&t);
 		sendAnswer(recv);
 	}
 
 	else if (message.dnsheader.QR == 1) {
-		printf("\nrecieve a response from a server\n");
+		printf("recieve a response from a server\n");
 		printMessage(&t);
 		analyzeResponse(recv);
 	}
 
 	else {
-		printf("\nreceive other message from a server\n");
+		printf("receive other message from a server\n");
 		printMessage(&t);
 		sendToServer(recv);
 	}
@@ -880,6 +871,12 @@ int main(int argc, char** argv)
 		case 'w': printf("Wrong command\n"); exit(1); break;
 		}
 	}
+
+	printf("DNSRELAY v1.0\n");
+	printf("Options: -d            print brief debug information\n");
+	printf("         -dd           print detailed debug information\n");
+	printf("         -i [filepath] replace default cache file by filepath\n");
+	printf("         -s [serverIP] replace default server by serverIP\n");
 
 	init(path);
 
