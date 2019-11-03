@@ -1,4 +1,7 @@
-﻿#include <stdio.h>
+﻿#pragma warning(disable:4996)
+#pragma comment(lib,"ws2_32.lib")
+
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <winsock2.h>
@@ -45,7 +48,7 @@ SOCKADDR_IN serverAddr;
 //    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 //    |                    ARCOUNT                    |
 //    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
-typedef struct DNSHeader 
+typedef struct DNSHeader
 {
 	uint16_t ID;
 	uint16_t QR : 1;
@@ -109,16 +112,16 @@ typedef struct ResourceRecord {
 } ResourceRecord;
 
 /*  +---------------------+
-    |        Header       |
-    +---------------------+
-    |       Question      | the question for the name server
-    +---------------------+
-    |        Answer       | RRs answering the question
-    +---------------------+
-    |      Authority      | RRs pointing toward an authority
-    +---------------------+
-    |      Additional     | RRs holding additional information
-    +---------------------+  */
+	|        Header       |
+	+---------------------+
+	|       Question      | the question for the name server
+	+---------------------+
+	|        Answer       | RRs answering the question
+	+---------------------+
+	|      Authority      | RRs pointing toward an authority
+	+---------------------+
+	|      Additional     | RRs holding additional information
+	+---------------------+  */
 struct Message {
 	DNSHeader dnsheader;
 	Question* question;
@@ -129,16 +132,16 @@ struct Message {
 } message;
 
 typedef struct Entry {
-	char IP[16];      
+	char IP[16];
 	char* name;
 } Entry;
 
-struct NameTable{
+struct NameTable {
 	Entry nametable[MAX_TABLEENTRY];
 	int size;
 } nameTable;
 
-typedef struct Record{
+typedef struct Record {
 	SOCKADDR_IN senderAddr;
 	uint16_t ID;
 	char* name;
@@ -191,12 +194,19 @@ char* mkcopy(const char* src)
 	return ret;
 }
 
-void init(const char *path)
+void printNameTable()
+{
+	int size = nameTable.size, i;
+	for (i = 0; i < size; i++)
+		printf("%s %s\n", nameTable.nametable[i].IP, nameTable.nametable[i].name);
+}
+
+void init(const char* path)
 {
 	char tempIP[MAX_ADDLENGTH + 1];
 	char tempName[100];
 	int c;
-	
+
 	if (path[0])
 		cache = fopen("path", "r+");
 	else
@@ -215,7 +225,7 @@ void init(const char *path)
 		strncpy(nameTable.nametable[nameTable.size].IP, tempIP, MAX_ADDLENGTH);
 		nameTable.nametable[nameTable.size++].name = mkcopy(tempName);
 	}
-
+	printNameTable();
 	nameTable.size = 0;
 	recordTable.size = 0;
 
@@ -247,16 +257,16 @@ void freeSpace()
 		free(message.question);
 	}
 
-	if (message.answer){
+	if (message.answer) {
 		for (i = 0; i < message.dnsheader.ANCOUNT; i++) {
 			if (message.answer[i].NAME)
 				free(message.answer[i].NAME);
-			if(message.answer[i].RDATA)
+			if (message.answer[i].RDATA)
 				free(message.answer[i].RDATA);
 		}
 		free(message.answer);
 	}
-	
+
 	if (message.authority) {
 		for (i = 0; i < message.dnsheader.NSCOUNT; i++) {
 			if (message.authority[i].NAME)
@@ -278,12 +288,23 @@ void freeSpace()
 	}
 }
 
-void ExtractHeader(uint8_t** ptr)
+void get16bits(uint8_t * *ptr, uint16_t * value)
+{
+	*value = ntohs(*(uint16_t*)(*ptr));
+	*ptr += sizeof(uint16_t);
+}
+
+void get32bits(uint8_t * *ptr, uint32_t * value)
+{
+	*value = ntohs(*(uint32_t*)(*ptr));
+	*ptr += sizeof(uint32_t);
+}
+
+void ExtractHeader(uint8_t * *ptr)
 {
 	uint16_t temp;
-	message.dnsheader.ID = ntohs(*(uint16_t*)(*ptr));
-	*ptr += 2;
-	temp = ntohs(*(uint16_t*)(*ptr));
+	get16bits(ptr, &message.dnsheader.ID);
+	get16bits(ptr, &temp);
 	message.dnsheader.QR = (temp & 0x8000) >> 15;
 	message.dnsheader.Opcode = (temp & 0x7800) >> 11;
 	message.dnsheader.AA = (temp & 0x0400) >> 10;
@@ -292,18 +313,13 @@ void ExtractHeader(uint8_t** ptr)
 	message.dnsheader.RA = (temp & 0x0080) >> 7;
 	message.dnsheader.Z = (temp & 0x0070) >> 4;
 	message.dnsheader.RCODE = temp & 0x000f;
-	*ptr += 2;
-	message.dnsheader.QDCOUNT = ntohs(*(uint16_t*)(*ptr));
-	*ptr += 2;
-	message.dnsheader.ANCOUNT = ntohs(*(uint16_t*)(*ptr));
-	*ptr += 2;
-	message.dnsheader.NSCOUNT = ntohs(*(uint16_t*)(*ptr));
-	*ptr += 2;
-	message.dnsheader.ARCOUNT = ntohs(*(uint16_t*)(*ptr));
-	*ptr += 2;
+	get16bits(ptr, &message.dnsheader.QDCOUNT);
+	get16bits(ptr, &message.dnsheader.ANCOUNT);
+	get16bits(ptr, &message.dnsheader.NSCOUNT);
+	get16bits(ptr, &message.dnsheader.ARCOUNT);
 }
 
-void extractName(uint8_t** ptr, char** name)
+void extractName(uint8_t * *ptr, char** name)
 {
 	while (**ptr != 0) {
 		if ((**ptr & 0xc0) == 0xc0) {
@@ -325,7 +341,7 @@ void extractName(uint8_t** ptr, char** name)
 	(*ptr)++;
 }
 
-void ExtractQuestion(uint8_t** ptr)
+void ExtractQuestion(uint8_t * *ptr)
 {
 	int i;
 	char* name;
@@ -335,15 +351,13 @@ void ExtractQuestion(uint8_t** ptr)
 		name = mkcopy("");
 		extractName(ptr, &name);
 		message.question[i].QNAME = mkcopy(name);
-		message.question[i].QTYPE = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
-		message.question[i].QCLASS = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
+		get16bits(ptr, &message.question[i].QTYPE);
+		get16bits(ptr, &message.question[i].QCLASS);
 		free(name);
 	}
 }
 
-void ExtractRR(uint8_t** ptr)
+void ExtractRR(uint8_t * *ptr)
 {
 	int i;
 	uint16_t rrcount;
@@ -355,54 +369,42 @@ void ExtractRR(uint8_t** ptr)
 		name = mkcopy("");
 		extractName(ptr, &name);
 		message.answer[i].NAME = mkcopy(name);
-		message.answer[i].TYPE = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
-		message.answer[i].CLASS = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
-		message.answer[i].TTL = ntohs(*(uint32_t*)(*ptr));
-		*ptr += 4;
-		message.answer[i].RDLENGTH = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
+		get16bits(ptr, &message.answer[i].TYPE);
+		get16bits(ptr, &message.answer[i].CLASS);
+		get32bits(ptr, &message.answer[i].TTL);
+		get16bits(ptr, &message.answer[i].RDLENGTH);
 		message.answer[i].RDATA = (uint8_t)malloc(message.answer[i].RDLENGTH);
 		memcpy(message.answer[i].RDATA, *ptr, message.answer[i].RDLENGTH);
 		*ptr += message.answer[i].RDLENGTH;
 		free(name);
 	}
 
-	rrcount = message.dnsheader.NSCOUNT; 
+	rrcount = message.dnsheader.NSCOUNT;
 	message.authority = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
 	for (i = 0; i < rrcount; i++) {
 		name = mkcopy("");
 		extractName(ptr, &name);
 		message.authority[i].NAME = mkcopy(name);
-		message.authority[i].TYPE = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
-		message.authority[i].CLASS = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
-		message.authority[i].TTL = ntohs(*(uint32_t*)(*ptr));
-		*ptr += 4;
-		message.authority[i].RDLENGTH = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
+		get16bits(ptr, &message.authority[i].TYPE);
+		get16bits(ptr, &message.authority[i].CLASS);
+		get32bits(ptr, &message.authority[i].TTL);
+		get16bits(ptr, &message.authority[i].RDLENGTH);
 		message.authority[i].RDATA = (uint8_t)malloc(message.authority[i].RDLENGTH);
 		memcpy(message.authority[i].RDATA, *ptr, message.authority[i].RDLENGTH);
 		*ptr += message.authority[i].RDLENGTH;
 		free(name);
 	}
 
-	rrcount = message.dnsheader.ARCOUNT; 
+	rrcount = message.dnsheader.ARCOUNT;
 	message.additional = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
 	for (i = 0; i < rrcount; i++) {
 		name = mkcopy("");
 		extractName(ptr, &name);
 		message.additional[i].NAME = mkcopy(name);
-		message.additional[i].TYPE = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
-		message.additional[i].CLASS = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
-		message.additional[i].TTL = ntohs(*(uint32_t*)(*ptr));
-		*ptr += 4;
-		message.additional[i].RDLENGTH = ntohs(*(uint16_t*)(*ptr));
-		*ptr += 2;
+		get16bits(ptr, &message.additional[i].TYPE);
+		get16bits(ptr, &message.additional[i].CLASS);
+		get32bits(ptr, &message.additional[i].TTL);
+		get16bits(ptr, &message.additional[i].RDLENGTH);
 		message.additional[i].RDATA = (uint8_t)malloc(message.additional[i].RDLENGTH);
 		memcpy(message.additional[i].RDATA, *ptr, message.additional[i].RDLENGTH);
 		*ptr += message.additional[i].RDLENGTH;
@@ -419,40 +421,40 @@ void ExtractMessage()
 	message.senderAddr = from;
 }
 
-void printName(uint8_t *name)
+void printName(uint8_t * name)
 {
-    int cnt = 0, i;
+	int cnt = 0, i;
 	int length = strlen(name);
-    for (i = 0; i < length; i++) {
-        if (!cnt) {
-            cnt = name[i];
-            printf("%d", name[i]);
-        }
-        else {
-            cnt--;
-            printf("%c", name[i]);
-        }
-    }
+	for (i = 0; i < length; i++) {
+		if (!cnt) {
+			cnt = name[i];
+			printf("%d", name[i]);
+		}
+		else {
+			cnt--;
+			printf("%c", name[i]);
+		}
+	}
 	putchar('\n');
 }
 
-void printMessage(time_t *time)
+void printMessage(time_t * time)
 {
 	int i;
 	switch (verbose)
 	{
 	case 0: break;
-	case 1: 
+	case 1:
 		printf("Time: %s\n", ctime(time));
 		printf("Count: %d\n", count);
 		printf("Name: ");
-		printName(message.question[i].QNAME);
+		printName(message.question[0].QNAME);
 		break;
 	case 2:
 		printf("Time: %s\n", ctime(time));
 		printf("Count: %d\n", count);
 		printf("------------------HEADER------------------\n");
-		printf("ID:      %X\n",message.dnsheader.ID);
+		printf("ID:      %X\n", message.dnsheader.ID);
 		printf("QR:      %X\n", message.dnsheader.QR);
 		printf("Opcode:  %X\n", message.dnsheader.Opcode);
 		printf("AA:      %X\n", message.dnsheader.AA);
@@ -488,7 +490,7 @@ void printMessage(time_t *time)
 			int j;
 			for (j = 0; j < message.answer[i].RDLENGTH; j++) {
 				printf("%X  ", message.answer[i].RDATA[j]);
-				if (j == message.answer[i].RDLENGTH-1) {
+				if (j == message.answer[i].RDLENGTH - 1) {
 					putchar('\n');
 				}
 			}
@@ -535,7 +537,7 @@ void printMessage(time_t *time)
 	}
 }
 
-char* transName(uint8_t* name)
+char* transName(uint8_t * name)
 {
 	char* ret = (char*)malloc(strlen(name) + 1);
 	int i, k = 0;
@@ -544,7 +546,7 @@ char* transName(uint8_t* name)
 		int temp = size;
 		while (temp--)
 			ret[k++] = name[++i];
-		if(size)
+		if (size)
 			ret[k++] = '.';
 	}
 	ret[k] = '\0';
@@ -593,21 +595,21 @@ void createAnswer(char* IP, char* name)
 	}
 }
 
-void put16bits(uint16_t value, uint8_t** ptr, int* buffersize)
+void put16bits(uint16_t value, uint8_t * *ptr, int* buffersize)
 {
 	*(uint16_t*)(*ptr) = (uint16_t)htons(value);
 	*ptr += sizeof(uint16_t);
 	*buffersize += sizeof(uint16_t);
 }
 
-void put32bits(uint16_t value, uint8_t** ptr, int* buffersize)
+void put32bits(uint16_t value, uint8_t * *ptr, int* buffersize)
 {
 	*(uint32_t*)(*ptr) = (uint32_t)htons(value);
 	*ptr += sizeof(uint32_t);
 	*buffersize += sizeof(uint32_t);
 }
 
-void constructHeader(uint8_t** ptr, int* buffersize)
+void constructHeader(uint8_t * *ptr, int* buffersize)
 {
 	uint16_t temp = 0;
 	temp |= message.dnsheader.QR << 15;
@@ -627,7 +629,7 @@ void constructHeader(uint8_t** ptr, int* buffersize)
 	put16bits(message.dnsheader.ARCOUNT, ptr, buffersize);
 }
 
-void constructQuestion(uint8_t** ptr, int* buffersize)
+void constructQuestion(uint8_t * *ptr, int* buffersize)
 {
 	int i;
 	for (i = 0; i < message.dnsheader.QDCOUNT; i++) {
@@ -639,7 +641,7 @@ void constructQuestion(uint8_t** ptr, int* buffersize)
 	}
 }
 
-void constructRR(uint8_t** ptr, int* buffersize)
+void constructRR(uint8_t * *ptr, int* buffersize)
 {
 	int i;
 	for (i = 0; i < message.dnsheader.ANCOUNT; i++) {
@@ -717,7 +719,7 @@ void insertEntry(uint32_t IP, char* name)
 	fprintf(cache, "%s %s\n", nameTable.nametable[nameTable.size++].IP, name);
 }
 
-int findRecord(uint16_t ID, SOCKADDR_IN* temp, char** name)
+int findRecord(uint16_t ID, SOCKADDR_IN * temp, char** name)
 {
 	int i, size = recordTable.size;
 	for (i = 0; i < size; i++)
@@ -744,11 +746,11 @@ void sendAnswer(int recvbytes)
 		char* name = transName(message.question[0].QNAME);
 		int index = findTable(name);
 		if (index >= 0) {
-			int buffersize = constructMessage(nameTable.nametable[index].IP, message.question[0].QNAME); 
+			int buffersize = constructMessage(nameTable.nametable[index].IP, message.question[0].QNAME);
 			printf("find the record in local name table\n");
 			printf("the message is sent to the server\n");
 			printMessage(&t);
-			if(sendto(hostSocket, buffer, buffersize, 0, &message.senderAddr, sizeof(message.senderAddr)) < 0)
+			if (sendto(hostSocket, buffer, buffersize, 0, &message.senderAddr, sizeof(message.senderAddr)) < 0)
 				printf("fail to send response\n");
 		}
 		else {
@@ -792,7 +794,7 @@ void recvMessage()
 	count++;
 	time(&t);
 
-	printf("%s\n",ctime(&t));
+	printf("%s\n", ctime(&t));
 	freeSpace();
 	ExtractMessage();
 
@@ -818,13 +820,13 @@ void recvMessage()
 int main(int argc, char** argv)
 {
 	DNSHeader a;
-	return 0;
-	int ret;
-	char server[MAX_ADDLENGTH + 1] = {'\0'};
-	char path[MAX_PATHLENGTH + 1] = {'\0'};
 
-	while ((ret = getopt(argc, argv)) != -1){
-		switch (ret){
+	int ret;
+	char server[MAX_ADDLENGTH + 1] = { '\0' };
+	char path[MAX_PATHLENGTH + 1] = { '\0' };
+	
+	while ((ret = getopt(argc, argv)) != -1) {
+		switch (ret) {
 		case 'd': verbose = 1; break;
 		case 'e': verbose = 2; break;
 		case 's': strncpy(server, optarg, MAX_ADDLENGTH); break;
@@ -834,8 +836,9 @@ int main(int argc, char** argv)
 	}
 
 	init(path);
-	
-	while (1){
+
+	while (1) {
 		recvMessage();
 	}
+	
 }
