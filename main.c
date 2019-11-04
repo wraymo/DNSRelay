@@ -112,7 +112,7 @@ typedef struct ResourceRecord {
 	uint8_t* RDATA;
 } ResourceRecord;
 
-/*  +---------------------+
+/*  	+---------------------+
 	|        Header       |
 	+---------------------+
 	|       Question      | the question for the name server
@@ -310,8 +310,6 @@ void get32bits(uint8_t * *ptr, uint32_t * value)
 	*ptr += sizeof(uint32_t);
 }
 
-
-
 void ExtractHeader(uint8_t * *ptr)
 {
 	uint16_t temp;
@@ -429,7 +427,7 @@ void ExtractRR(uint8_t * *ptr)
 
 	rrcount = message.dnsheader.ARCOUNT;
 	if (rrcount)
-	message.additional = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
+		message.additional = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
 	for (i = 0; i < rrcount; i++) {
 		name = mkcopy("");
 		extractName(ptr, &name);
@@ -453,7 +451,6 @@ void ExtractMessage()
 	ExtractRR(&ptr);
 	message.senderAddr = from;
 }
-
 
 void printMessage(time_t * time)
 {
@@ -767,8 +764,7 @@ int findRecord(uint16_t ID, SOCKADDR_IN * temp, char** name)
 void sendToServer(int bytes)
 {
 	insertRecord();
-	int ret;
-	ret = sendto(hostSocket, buffer, bytes, 0, &serverAddr, sizeof(serverAddr));
+	sendto(hostSocket, buffer, bytes, 0, &serverAddr, sizeof(serverAddr));
 }
 
 void sendAnswer(int recvbytes)
