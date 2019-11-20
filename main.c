@@ -1,4 +1,4 @@
-ï»¿#pragma warning(disable:4996)
+#pragma warning(disable:4996)
 #pragma comment(lib,"ws2_32.lib")
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,12 +15,14 @@
 #define MAX_TABLEENTRY 1000
 #define MAX_RECORD 400
 #define DEFAULT_DNS "10.3.9.4"
+#define MAX_RECORD_NUM 65535
 
 typedef unsigned __int64 uint64_t;
 typedef unsigned __int32 uint32_t;
 typedef unsigned __int16 uint16_t;
 typedef unsigned __int8 uint8_t;
 
+uint16_t CurrentId =  0 ;
 int verbose;
 int optind = 1;
 char* optarg;
@@ -112,7 +114,7 @@ typedef struct ResourceRecord {
 	uint8_t* RDATA;
 } ResourceRecord;
 
-/*  	+---------------------+
+/*  +---------------------+
 	|        Header       |
 	+---------------------+
 	|       Question      | the question for the name server
@@ -143,6 +145,7 @@ struct NameTable {
 } nameTable;
 
 typedef struct Record {
+	uint16_t CurrentId;
 	SOCKADDR_IN senderAddr;
 	uint16_t ID;
 	char* name;
@@ -207,7 +210,7 @@ void init(const char* path)
 	char tempIP[MAX_ADDLENGTH + 1];
 	char tempName[100];
 	int c;
-	int ret; 
+	int ret;
 
 	if (path[0])
 		cache = fopen("path", "r+");
@@ -231,9 +234,9 @@ void init(const char* path)
 		nameTable.nametable[nameTable.size++].name = mkcopy(tempName);
 	}
 
-	WORD sockVersion = MAKEWORD(2, 2);  
+	WORD sockVersion = MAKEWORD(2, 2);
 	if (WSAStartup(sockVersion, &wsaData) != 0) {
-		return 0;
+		return;
 	}
 
 	struct sockaddr_in sin;
@@ -243,11 +246,11 @@ void init(const char* path)
 	hostAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
 
 	if (ret = bind(hostSocket, (SOCKADDR*)& hostAddr, sizeof(SOCKADDR_IN))) {
-		printf("Error Typeï¼š%d\n", WSAGetLastError());
+		printf("Error Type£º%d\n", WSAGetLastError());
 		printf("Failed to bind socket to sockaddr.\n");
 		exit(1);
 	}
-	
+
 	buffer = (uint8_t*)malloc(MAX_BUFFERSIZE);
 	memset(buffer, 0, MAX_BUFFERSIZE);
 
@@ -367,7 +370,7 @@ void ExtractQuestion(uint8_t * *ptr)
 	}
 }
 
-void printName(uint8_t* name)
+void printName(uint8_t * name)
 {
 	int cnt = 0, i;
 	int length = strlen(name);
@@ -391,9 +394,9 @@ void ExtractRR(uint8_t * *ptr)
 	char* name;
 
 	rrcount = message.dnsheader.ANCOUNT;
-	if(rrcount)
+	if (rrcount)
 		message.answer = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
-	
+
 	for (i = 0; i < rrcount; i++) {
 		name = mkcopy("");
 		extractName(ptr, &name);
@@ -409,7 +412,7 @@ void ExtractRR(uint8_t * *ptr)
 	}
 
 	rrcount = message.dnsheader.NSCOUNT;
-	if(rrcount)
+	if (rrcount)
 		message.authority = (ResourceRecord*)malloc(sizeof(ResourceRecord) * rrcount);
 	for (i = 0; i < rrcount; i++) {
 		name = mkcopy("");
@@ -560,7 +563,7 @@ char* transName(uint8_t * name)
 		int temp = size;
 		while (temp--)
 			ret[k++] = name[++i];
-		if (size && name[i+1])
+		if (size && name[i + 1])
 			ret[k++] = '.';
 	}
 	ret[k] = '\0';
@@ -588,7 +591,7 @@ void createAnswer(char* IP, char* name)
 		message.dnsheader.RA = 1;
 		message.dnsheader.RCODE = 0;
 		message.dnsheader.ANCOUNT = 1;
-		
+
 		if (!message.answer) {
 			message.answer = (ResourceRecord*)malloc(sizeof(ResourceRecord));
 			memset(message.answer, 0, sizeof(ResourceRecord));
@@ -599,7 +602,7 @@ void createAnswer(char* IP, char* name)
 			message.answer[0].NAME = (char*)realloc(message.answer[0].NAME, strlen(name) + 1);
 			strcpy(message.answer[0].NAME, name);
 		}
-		
+
 		message.answer[0].TYPE = 1;
 		message.answer[0].CLASS = 1;
 		message.answer[0].RDLENGTH = 4;
@@ -658,7 +661,7 @@ void constructQuestion(uint8_t * *ptr, int* buffersize)
 		*ptr += 1;
 		*buffersize += 1;
 		put16bits(message.question[i].QTYPE, ptr, buffersize);
-		put16bits(message.question[i].QCLASS, ptr, buffersize);	
+		put16bits(message.question[i].QCLASS, ptr, buffersize);
 	}
 }
 
@@ -734,9 +737,17 @@ int constructMessage(char* IP, char* name)
 
 void insertRecord()
 {
+	CurrentId = (CurrentId + 1) % MAX_RECORD_NUM;
+
+	recordTable.recordtable[recordTable.size].CurrentId = CurrentId;
 	recordTable.recordtable[recordTable.size].ID = message.dnsheader.ID;
 	recordTable.recordtable[recordTable.size].senderAddr = message.senderAddr;
 	recordTable.recordtable[recordTable.size++].name = transName(message.question[0].QNAME);
+
+	message.dnsheader.ID = CurrentId;
+	uint8_t* ptr = buffer;
+	int a = 0;
+	constructHeader(&ptr, &a);
 }
 
 void insertEntry(uint32_t IP, char* name)
@@ -753,9 +764,15 @@ int findRecord(uint16_t ID, SOCKADDR_IN * temp, char** name)
 {
 	int i, size = recordTable.size;
 	for (i = 0; i < size; i++)
-		if (recordTable.recordtable[i].ID == ID) {
+		if (recordTable.recordtable[i].CurrentId == ID) {
 			*temp = recordTable.recordtable[i].senderAddr;
 			*name = recordTable.recordtable[i].name;
+			message.dnsheader.ID = recordTable.recordtable[i].ID;
+			uint8_t* ptr = buffer;
+			int a = 0;
+
+			constructHeader(&ptr, &a);
+
 			return 1;
 		}
 	return 0;
@@ -771,6 +788,7 @@ void sendAnswer(int recvbytes)
 {
 	time_t t;
 	time(&t);
+
 	if (message.dnsheader.QDCOUNT == 1 &&
 		message.question[0].QTYPE == 1 && message.question[0].QCLASS == 1) {
 		char* name = transName(message.question[0].QNAME);
@@ -857,7 +875,7 @@ int main(int argc, char** argv)
 	int ret;
 	char server[MAX_ADDLENGTH + 1] = { '\0' };
 	char path[MAX_PATHLENGTH + 1] = { '\0' };
-	
+
 	while ((ret = getopt(argc, argv)) != -1) {
 		switch (ret) {
 		case 'd': verbose = 1; break;
