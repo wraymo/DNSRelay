@@ -191,7 +191,7 @@ int getopt(int argc, char** argv)
 	return 'w';
 }
 
-char* mkcopy(const char* src)
+char* mkcopy(const char* src) // üçÖ
 {
 	int len = strlen(src);
 	char* ret = (char*)malloc(len + 1);
@@ -247,7 +247,7 @@ void init(const char* path)
 	hostAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
 
 	if (ret = bind(hostSocket, (SOCKADDR*)& hostAddr, sizeof(SOCKADDR_IN))) {
-		printf("Error Type£∫%d\n", WSAGetLastError());
+		printf("Error TypeÔøΩÔøΩ%d\n", WSAGetLastError());
 		printf("Failed to bind socket to sockaddr.\n");
 		exit(1);
 	}
